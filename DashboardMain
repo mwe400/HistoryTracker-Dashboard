@@ -1,0 +1,789 @@
+package sci.rutgers.edu;
+
+import java.io.IOException;
+import java.util.*;
+import java.text.*;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.conf.*;
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.mapreduce.*;
+import org.apache.hadoop.mapreduce.lib.input.*;
+import org.apache.hadoop.mapreduce.lib.output.*;
+import org.apache.hadoop.util.*;
+//import org.archive.format.json.JSONView;
+//import org.json.JSONException;
+//import org.json.JSONObject;
+
+public class DashBoard extends Configured implements Tool {
+	public static long distinct_counter = 0;
+	public static long total_counter = 0;
+	public static long total_TLD = 0;
+	
+
+	public static class PreProcessingDataMap extends Mapper<Object, Text, Text, NullWritable> {
+        private Text jsonLine = new Text();
+		//private String[] jsonArrayString;
+		private String jsonString = new String("");
+		private String tempString = new String("");
+		//private JSONView view;
+		static enum Counters { TOTAL_RECORD}
+		int lastIndex = -1;
+		int bgIndex = -1;
+		int edIndex = -1;
+		int json = 0;
+
+		public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            String line = value.toString();
+			String Linksl;
+			String ptSearch;
+			String vTargetURI = new String("");
+			String vDate= new String("");
+			String vContentLength= new String("");
+			String vContentType= new String("");
+			String vDestURL= new String("");
+			int vInternalURL = 0;
+			int vCount = 0;
+			
+
+			//Configuration conf = context.getConfiguration();
+			//String fieldArgs = conf.get("fieldArgs");
+			
+			lastIndex = line.indexOf("{\"Envelope\":");
+			
+
+			if (lastIndex >=0) {
+				if (json == 1) {
+					//Json output verion
+					ptSearch = new String("\"ARC-Header-Metadata\":");
+					bgIndex = line.indexOf(ptSearch) ;
+					edIndex = line.indexOf(",\"ARC-Header-Length\"", bgIndex + ptSearch.length());
+					if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+						jsonString = "{\"ARC-Header-Metadata\":" + line.substring(bgIndex + ptSearch.length(),edIndex);						
+					}
+
+				
+					ptSearch = new String("\"HTML-Metadata\":");
+					bgIndex = line.indexOf(ptSearch) ;
+					edIndex = line.indexOf("\"}],\"", bgIndex + ptSearch.length());
+					if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+						jsonString = jsonString + ",\"HTML-Metadata\":" + line.substring(bgIndex + ptSearch.length(), edIndex+3) + "}}";
+					} else {
+						jsonString = jsonString + "}";
+					}
+				
+									
+					if (jsonString.length() > 0) {
+						jsonString = jsonString  + "\n";
+						jsonLine.set(jsonString);
+						context.write(jsonLine, NullWritable.get());
+						context.getCounter(Counters.TOTAL_RECORD).increment(1);
+					}
+					
+				} else {
+					//Text output version
+					jsonString = new String("");
+
+					ptSearch = new String("\"ARC-Header-Metadata\":");
+					bgIndex = line.indexOf(ptSearch) ;
+					edIndex = line.indexOf(",\"ARC-Header-Length\"", bgIndex + ptSearch.length());
+					if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+						tempString = line.substring(bgIndex + ptSearch.length(),edIndex);		
+						
+						vTargetURI = new String("");
+						ptSearch = new String("\"Target-URI\":\"");
+						bgIndex = tempString.indexOf(ptSearch) ;
+						edIndex = tempString.indexOf("\",\"", bgIndex + ptSearch.length());
+						if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+							vTargetURI = tempString.substring(bgIndex + ptSearch.length(), edIndex);
+							vTargetURI = vTargetURI.toLowerCase();	
+
+							bgIndex = vTargetURI.indexOf("https://");
+							if (bgIndex > 0 ) {
+								vTargetURI = vTargetURI.substring(bgIndex + 8);								
+							} else { 
+								bgIndex = vTargetURI.indexOf("http://");
+								if ( bgIndex >= 0) {
+									vTargetURI = vTargetURI.substring(bgIndex + 7);
+								}
+							}
+
+							bgIndex = vTargetURI.indexOf("www");
+							if (bgIndex >=0) {
+								bgIndex = vTargetURI.indexOf(".");
+								if (bgIndex >=0) {
+									vTargetURI = vTargetURI.substring(bgIndex+1);
+								} else {
+									bgIndex = vTargetURI.indexOf("www");
+									vTargetURI = vTargetURI.substring(bgIndex + 3);
+								}
+							}
+							
+	
+							bgIndex = vTargetURI.indexOf("/");
+							if ( bgIndex >= 0) {			
+								vTargetURI = vTargetURI.substring(0, bgIndex);
+							}
+
+							bgIndex = vTargetURI.indexOf(":");
+							if ( bgIndex >= 0) {			
+								vTargetURI = vTargetURI.substring(0, bgIndex);
+							}
+						}
+
+						ptSearch = new String("\"Date\":\"");
+						bgIndex = tempString.indexOf(ptSearch) ;
+						edIndex = tempString.indexOf("\",\"", bgIndex + ptSearch.length());
+						if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+							vDate = tempString.substring(bgIndex + ptSearch.length(), edIndex);	
+							if (vDate.length() >= 8) {
+								vDate = vDate.substring(0,7);
+							}	
+										
+						}
+
+						ptSearch = new String("\"Content-Type\":\"");
+						bgIndex = tempString.indexOf(ptSearch) ;
+						edIndex = tempString.indexOf("\",\"", bgIndex + ptSearch.length());
+						if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+							vContentType = tempString.substring(bgIndex + ptSearch.length(), edIndex);							
+						}
+
+						ptSearch = new String("\"Content-Length\":\"");
+						bgIndex = tempString.indexOf(ptSearch) ;
+						edIndex = tempString.indexOf("\",\"", bgIndex + ptSearch.length());
+						if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+							vContentLength = tempString.substring(bgIndex + ptSearch.length(), edIndex);							
+						}						
+						
+					}
+					
+					jsonString = new String("");
+
+					ptSearch = new String("\"HTML-Metadata\":");
+					bgIndex = line.indexOf(ptSearch) ;
+					edIndex = line.indexOf("\"}],\"", bgIndex + ptSearch.length());
+					if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+						tempString = line.substring(bgIndex + ptSearch.length(), edIndex);
+						ptSearch = new String("\"url\":\"");
+						bgIndex = tempString.indexOf(ptSearch) ;
+
+						while (bgIndex >=0) {
+							edIndex = tempString.indexOf("\"},", bgIndex + ptSearch.length());
+							int bgIndex1 = -1;
+							int edIndex1 = -1;
+							if ((bgIndex > 0) && (edIndex > bgIndex + ptSearch.length())) {
+								vDestURL = tempString.substring(bgIndex + ptSearch.length(), edIndex);
+								vDestURL = vDestURL.toLowerCase();
+								tempString = tempString.substring(edIndex);	
+		
+								bgIndex1 = vDestURL.indexOf("https://");
+								if (bgIndex1 < 0 ) {
+									bgIndex1 = vDestURL.indexOf("http://");
+									if ( bgIndex1 >= 0) {
+										vDestURL = vDestURL.substring(bgIndex1 + 7);
+									}
+								} else {
+									vDestURL = vDestURL.substring(bgIndex1 + 8);
+								}
+
+								if ( bgIndex1 >= 0) {
+									
+									bgIndex1 = vDestURL.indexOf("www");
+									if (bgIndex1 >=0) {
+										bgIndex1 = vDestURL.indexOf(".");
+										if (bgIndex1 >=0) {
+											vDestURL = vDestURL.substring(bgIndex1+1);
+										} else {
+											bgIndex1 = vDestURL.indexOf("www");
+											vDestURL = vDestURL.substring(bgIndex1 + 3);
+										}
+									}
+									bgIndex1 = vDestURL.indexOf("/");
+									if ( bgIndex1 >= 0) {			
+										vDestURL = vDestURL.substring(0, bgIndex1);
+									}
+
+									bgIndex1 = vDestURL.indexOf(":");
+									if ( bgIndex1 >= 0) {			
+										vDestURL = vDestURL.substring(0, bgIndex1);
+									}
+
+									if (vDestURL.indexOf(vTargetURI)>=0 || vTargetURI.indexOf(vDestURL)>=0 || vDestURL.indexOf("/")>=0 || vDestURL.indexOf(".html")>=0|| vDestURL.indexOf("%")>=0|| 
+											vDestURL.indexOf("?")>=0 || vDestURL.indexOf(".gif")>=0 || vDestURL.indexOf(".htm")>=0 || vDestURL.indexOf(".GIF")>=0 ||vDestURL.indexOf(".exe")>=0) {
+										vInternalURL = vInternalURL + 1;
+									} else {
+										bgIndex1 = vDestURL.lastIndexOf(".");
+										if ( bgIndex1 >= 0) {			
+											edIndex1 = vDestURL.lastIndexOf(".", bgIndex1);
+											String v1;
+											String v2;
+											if (edIndex1 >=0 && edIndex1 <  bgIndex1) {
+												v1 = vDestURL.substring(edIndex1);
+												if (vTargetURI.length() >= (vDestURL.length() - edIndex1)) {
+													v2 = vTargetURI.substring(edIndex1);
+												} else {
+													v2 = vTargetURI;
+												}
+												if (v1.equals(v2)) {
+													vInternalURL = vInternalURL + 1;
+												} else {
+													vCount = vCount + 1;
+													if (jsonString.length() > 0 ) {
+														jsonString = jsonString + "\n" + vTargetURI + "\t" + vDestURL + "\t" + vDate + "\t1\t" + vContentType + "\t" + vContentLength;
+													} else {
+														jsonString = vTargetURI + "\t" + vDestURL + "\t" + vDate + "\t1\t" + vContentType + "\t" + vContentLength;
+													}
+												}
+
+											} else {
+												v1 = vDestURL;
+												v2 = vTargetURI;
+
+												if (v1.equals(v2)) {
+													vInternalURL = vInternalURL + 1;
+												} else {
+													vCount = vCount + 1;
+													if (jsonString.length() > 0 ) {
+														jsonString = jsonString + "\n" + vTargetURI + "\t" + vDestURL + "\t" + vDate + "\t1\t" + vContentType + "\t" + vContentLength;
+													} else {
+														jsonString = vTargetURI + "\t" + vDestURL + "\t" + vDate + "\t1\t" + vContentType + "\t" + vContentLength;
+													}
+												}											
+											}
+										}
+									}									
+								} else {	
+									vInternalURL = vInternalURL + 1;
+								}			
+							} else {
+								//NULL;		
+							}
+							bgIndex = tempString.indexOf(ptSearch) ;
+						}
+
+						if (vInternalURL > 0 ) {
+							if (jsonString.length() > 0 ) {
+								jsonString = jsonString + "\n" + vTargetURI + "\t" + vTargetURI + "\t" + vDate + "\t" + Integer.toString(vInternalURL) + "\t" + vContentType + "\t" + vContentLength;
+							} else {
+								jsonString = vTargetURI + "\t" + vTargetURI + "\t" + vDate + "\t1\t" + vContentType + "\t" + vContentLength;
+							}
+							
+						}
+					}
+
+					if (jsonString.length() > 0) {
+						jsonLine.set(jsonString);
+						context.write(jsonLine, NullWritable.get());
+						context.getCounter(Counters.TOTAL_RECORD).increment((vCount + vInternalURL));
+					}
+
+				}
+				
+			}
+			
+        }
+    }
+
+    public static class DistinctURLMap extends 
+	Mapper<Object, Text, Text, NullWritable> {
+		private Text outURL1 = new Text();
+		private Text outURL2 = new Text();
+		static enum Counters { TOTAL_URL}
+
+		private String dbCaseInputData;
+		private String dbCase;
+		private String startingTime;
+		private String endingTime;
+		private Text inputTime = new Text();
+
+		public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+			String[] tokenizer = (value.toString().replaceAll("\\s+","\t")).split("\t");
+
+            if (tokenizer.length > 3) {
+                Configuration conf = context.getConfiguration();
+
+				dbCase = conf.get("dbCase");
+				dbCaseInputData = conf.get("dbCaseInputData");
+                startingTime = conf.get("startingTime");
+                endingTime = conf.get("endingTime");
+
+                //startingTime = "1997-01-01";
+                //endingTime = "1997-02-01";
+				               
+                switch (Integer.parseInt(dbCase)) {
+					case 1: //Dash Board with the 1st question
+						if (dbCaseInputData.equals("ALL")) {
+							String url1 = tokenizer[0];
+							String url2 = tokenizer[1];
+							outURL1.set(url1);
+							outURL2.set(url2);
+
+						    context.write(outURL1, NullWritable.get());
+						    context.write(outURL2, NullWritable.get());
+							context.getCounter(Counters.TOTAL_URL).increment(2);
+						} else {
+							inputTime.set(tokenizer[2]);
+							SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH);
+							Date inputDate = new Date();                                          
+							Date startingDate = new Date();
+							Date endingDate = new Date();
+
+							try {
+							      inputDate = sdf.parse(inputTime.toString());                                            
+							      startingDate = sdf.parse(startingTime);
+							      endingDate = sdf.parse(endingTime);
+							} catch (ParseException e) {
+							   e.printStackTrace();
+							}
+
+							if (inputDate.after(startingDate) && inputDate.before(endingDate)) {
+								String url1 = tokenizer[0];
+								String url2 = tokenizer[1];
+								outURL1.set(url1);
+								outURL2.set(url2);
+
+							    context.write(outURL1, NullWritable.get());
+							    context.write(outURL2, NullWritable.get());
+								context.getCounter(Counters.TOTAL_URL).increment(2);
+							} 
+						}								
+						break;
+					case 2: //Dash Board with the 2nd question
+						
+						break;
+				}
+				
+                                            
+            }
+		}
+    }
+
+	
+	public static class MapTLD extends Mapper<LongWritable, Text, Text, IntWritable> {
+        private final static IntWritable one = new IntWritable(1);
+        private Text domain = new Text();
+
+        public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+            String line = value.toString();
+			String dm = new String();
+			int lastIndex = line.lastIndexOf('.');
+			if (lastIndex >=0 && lastIndex < line.length()) {
+				dm = line.substring(lastIndex+1);
+				lastIndex = dm.indexOf('/',0);
+				if (lastIndex >= 0) {
+					dm = dm.substring(0, lastIndex);
+				} else {
+					lastIndex = dm.indexOf('#',0);
+					if (lastIndex >= 0) {
+						dm = dm.substring(0, lastIndex);
+					} else {
+						lastIndex = dm.indexOf('?',0);
+						if (lastIndex >= 0) {
+							dm = dm.substring(0, lastIndex);
+						} else {
+							lastIndex = dm.indexOf(';',0);
+							if (lastIndex >= 0) {
+								dm = dm.substring(0, lastIndex);
+							} else {
+								lastIndex = dm.indexOf(':',0);
+								if (lastIndex >= 0) {
+									dm = dm.substring(0, lastIndex);
+								} else {
+									lastIndex = dm.indexOf('&',0);
+									if (lastIndex >= 0) {
+										dm = dm.substring(0, lastIndex);
+									} else {
+										lastIndex = dm.indexOf('>',0);
+										if (lastIndex >= 0) {
+											dm = dm.substring(0, lastIndex);
+										} else {
+											lastIndex = dm.indexOf('+',0);
+											if (lastIndex >= 0) {
+												dm = dm.substring(0, lastIndex);
+											} else {
+												lastIndex = dm.indexOf('-',0);
+												if (lastIndex >= 0) {
+													dm = dm.substring(0, lastIndex);
+												} else {
+													lastIndex = dm.indexOf('%',0);
+													if (lastIndex >= 0) {
+														dm = dm.substring(0, lastIndex);
+													} else {
+														lastIndex = dm.indexOf('<',0);
+														if (lastIndex >= 0) {
+															dm = dm.substring(0, lastIndex);
+														} else {
+															
+																//feature cases
+															
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if (dm.length() > 0 ) {
+				domain.set(dm.toLowerCase());
+				context.write(domain, one);
+			}
+        }
+    }
+
+	public static class MapCountingContentType extends Mapper<LongWritable, Text, Text, IntWritable> {
+        private final static IntWritable one = new IntWritable(1);
+        private Text contentType = new Text();
+
+		private String dbCaseInputData;
+		private String dbCase;
+		private String startingTime;
+		private String endingTime;
+		private Text inputTime = new Text();
+
+
+        public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+			String[] tokenizer = (value.toString().replaceAll("\\s+","\t")).split("\t");
+			String sCT = new String();
+
+            if (tokenizer.length >= 6) {
+				Configuration conf = context.getConfiguration();
+
+				dbCase = conf.get("dbCase");
+				dbCaseInputData = conf.get("dbCaseInputData");
+	            startingTime = conf.get("startingTime");
+	            endingTime = conf.get("endingTime");
+
+        		if (dbCaseInputData.equals("ALL")) {
+					sCT = tokenizer[5];
+					sCT = sCT.toLowerCase();
+					if (sCT.length() > 0 ) {
+						int lastIndex = sCT.indexOf("html");
+						if (lastIndex >=0) {
+							contentType.set("html");
+							context.write(contentType, one);
+						} else {
+							lastIndex = sCT.indexOf("application");
+							if (lastIndex >=0) {
+								contentType.set("application");
+								context.write(contentType, one);
+							}  else {
+								lastIndex = sCT.indexOf("plain");
+								if (lastIndex >=0) {
+									contentType.set("plain");
+									context.write(contentType, one);
+								}  else {
+									
+										contentType.set(sCT);
+										context.write(contentType, one);
+									
+								}
+							}
+						}
+
+						
+					}
+				} else {
+					inputTime.set(tokenizer[2]);
+					SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH);
+					Date inputDate = new Date();                                          
+					Date startingDate = new Date();
+					Date endingDate = new Date();
+
+					try {
+						  inputDate = sdf.parse(inputTime.toString());                                            
+						  startingDate = sdf.parse(startingTime);
+						  endingDate = sdf.parse(endingTime);
+					} catch (ParseException e) {
+					   e.printStackTrace();
+					}
+
+					if (inputDate.after(startingDate) && inputDate.before(endingDate)) {
+						sCT = tokenizer[5];
+						if (sCT.length() > 0 ) {
+							contentType.set(sCT.toLowerCase());
+							context.write(contentType, one);
+						}
+					}
+
+				} 
+			}
+        }
+
+    }
+
+
+	public static class PreProcessingDataReduce extends 
+	Reducer<Text, NullWritable, Text, NullWritable> {
+		static enum Counters { DIST_RECORD}
+		public void reduce(Text key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
+			context.write(key, NullWritable.get());
+			context.getCounter(Counters.DIST_RECORD).increment(1);
+			//counter = context.getCounter(Counters.DIST_URL).getValue();
+		}
+    }
+
+
+    public static class DistinctURLReduce extends 
+	Reducer<Text, NullWritable, Text, NullWritable> {
+		static enum Counters { DIST_URL}
+		public void reduce(Text key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
+			context.write(key, NullWritable.get());
+			context.getCounter(Counters.DIST_URL).increment(1);
+			//counter = context.getCounter(Counters.DIST_URL).getValue();
+		}
+    }
+
+	//public static class ReduceTLD extends Reducer<Text, IntWritable, Text, IntWritable> {
+	public static class ReduceTLD extends Reducer<Text, IntWritable, Text, NullWritable> {
+		static enum Counters { TOTAL_TLD}
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+			String kV = new String();
+			Text jsonKey = new Text();
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+			context.getCounter(Counters.TOTAL_TLD).increment(1);
+            //context.write(key, new IntWritable(sum));
+			//kV = "{{\"Domain\":\"" + key.toString() + "\"},{\"CountingURL\":\"" + Integer.toString(sum) + "\"}}";
+			kV = key.toString() + "\t" + Integer.toString(sum);
+			jsonKey.set(kV);
+			context.write(jsonKey, NullWritable.get());
+        }
+    }
+
+
+	//public static class Reduce Counting the Content Type extends Reducer<Text, IntWritable, Text, IntWritable> {
+	public static class ReduceCountingContentType extends Reducer<Text, IntWritable, Text, NullWritable> {
+		static enum Counters { TOTAL_CTT}
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+			String kV = new String();
+			Text jsonKey = new Text();
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+			context.getCounter(Counters.TOTAL_CTT).increment(1);
+            //context.write(key, new IntWritable(sum));
+			//kV = "{{\"Domain\":\"" + key.toString() + "\"},{\"CountingURL\":\"" + Integer.toString(sum) + "\"}}";
+			kV = key.toString() + "\t" + Integer.toString(sum);
+			jsonKey.set(kV);
+			context.write(jsonKey, NullWritable.get());
+        }
+    }
+
+
+
+    public int run(String [] args) throws Exception {
+		if (args.length >= 5) {
+			/*System.err.println("args[2]" + args[2]);
+			System.err.println("args[3]" + args[3]);
+			System.err.println("args[4]" + args[4]);
+
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH);
+            Date inputDate = new Date();                                          
+            Date startingDate = new Date();
+            Date endingDate = new Date();
+
+            try {
+                  inputDate = sdf.parse(args[2]);                                            
+                  startingDate = sdf.parse(args[3]);
+                  endingDate = sdf.parse(args[4]);
+            } catch (ParseException e) {
+               e.printStackTrace();
+            }
+
+            if (inputDate.after(startingDate) && inputDate.before(endingDate)) {
+				System.err.println("Date is correct!");
+			}			
+			*/
+			Configuration conf = new Configuration();
+			
+
+			boolean success = true;
+
+			switch (Integer.parseInt(args[2])) {
+				case 0: //Processing DashBoard Data
+					System.err.println("PRE-PROCESSING DASHBOARD DATA FOR " + args[4] + " YEAR");
+					conf.set("dbCase",args[2]);
+					conf.set("dbCaseInputData",args[3]);		
+					conf.set("startingTime",args[4]);
+					conf.set("endingTime",args[5]);
+					Job job0 = new Job(conf);
+					job0.setJarByClass(DashBoard.class);
+					job0.setJobName("ProcessingData");
+					
+					job0.setOutputKeyClass(Text.class);
+					job0.setOutputValueClass(NullWritable.class);
+					 
+					job0.setMapperClass(PreProcessingDataMap.class);
+					//job0.setCombinerClass(PreProcessingDataReduce.class);
+					job0.setReducerClass(PreProcessingDataReduce.class);
+	
+					job0.setInputFormatClass(TextInputFormat.class);
+					job0.setOutputFormatClass(TextOutputFormat.class);
+	
+					FileInputFormat.setInputPaths(job0, new Path(args[0]));
+					FileOutputFormat.setOutputPath(job0, new Path(args[1]));
+	
+					success = job0.waitForCompletion(true);
+					distinct_counter = job0.getCounters().findCounter(PreProcessingDataReduce.Counters.DIST_RECORD).getValue();
+					total_counter = job0.getCounters().findCounter(PreProcessingDataMap.Counters.TOTAL_RECORD).getValue();
+					break;
+				case 1: //Processing DashBoard with the 1st question
+					System.err.println("PROCESSING QUESTION 1 DASHBOARD DATA FROM " + args[4] + " TO " + args[5]);
+					conf.set("dbCase",args[2]);
+					conf.set("dbCaseInputData",args[3]);		
+					conf.set("startingTime",args[4]);
+					conf.set("endingTime",args[5]);
+					Job job = new Job(conf);
+					job.setJarByClass(DashBoard.class);
+					job.setJobName("distinctURL");
+			
+					job.setOutputKeyClass(Text.class);
+					job.setOutputValueClass(NullWritable.class);
+					 
+					job.setMapperClass(DistinctURLMap.class);
+					job.setCombinerClass(DistinctURLReduce.class);
+					job.setReducerClass(DistinctURLReduce.class);
+	
+					job.setInputFormatClass(TextInputFormat.class);
+					job.setOutputFormatClass(TextOutputFormat.class);
+	
+					FileInputFormat.setInputPaths(job, new Path(args[0]));
+					FileOutputFormat.setOutputPath(job, new Path(args[1]));
+	
+					success = job.waitForCompletion(true);
+					distinct_counter = job.getCounters().findCounter(DistinctURLReduce.Counters.DIST_URL).getValue();
+					total_counter = job.getCounters().findCounter(DistinctURLMap.Counters.TOTAL_URL).getValue();
+					break;
+				case 2: //Processing DashBoard with the 2nd question
+					System.err.println("PROCESSING QUESTION 2 DASHBOARD DATA FROM " + args[4] + " TO " + args[5]);
+					if (args[3].equals("NEW")) {
+						System.err.println("DASHBOARD FIRSTLY FINDS THE DISTINCT URL SET");
+						conf.set("dbCase","1");
+						conf.set("dbCaseInputData",args[3]);		
+						conf.set("startingTime",args[4]);
+						conf.set("endingTime",args[5]);
+						Job job1 = new Job(conf);
+						job1.setJarByClass(DashBoard.class);
+						job1.setJobName("distinctURL");
+			
+						job1.setOutputKeyClass(Text.class);
+						job1.setOutputValueClass(NullWritable.class);
+						 
+						job1.setMapperClass(DistinctURLMap.class);
+						job1.setCombinerClass(DistinctURLReduce.class);
+						job1.setReducerClass(DistinctURLReduce.class);
+	
+						job1.setInputFormatClass(TextInputFormat.class);
+						job1.setOutputFormatClass(TextOutputFormat.class);
+	
+						FileInputFormat.setInputPaths(job1, new Path(args[0]));
+						FileOutputFormat.setOutputPath(job1, new Path(args[1]));
+	
+						success = job1.waitForCompletion(true);
+						if (success) {
+							System.err.println("DASHBOARD FOUND THE DISTINCT URL SET SUCCESSFULLY!");
+						} else {
+							System.err.println("SYSTEM CAN'T DISTINCT URL SUCCESSFULLY!");
+							break;
+						}
+					} else {
+						System.err.println("DASHBOARD STARTS FROM THE OLD DISTINCT URL SET!");
+					}
+
+					System.err.println("DASHBOARD IS STARTING TO COUNT UNIQUES URLs BY TLD");
+					
+					Job job2 = new Job(conf);
+					job2.setJarByClass(DashBoard.class);
+					job2.setJobName("CountingURLbyTLD");
+					job2.setNumReduceTasks(1);
+
+					job2.setOutputKeyClass(Text.class);
+					job2.setOutputValueClass(IntWritable.class);
+					 
+					job2.setMapperClass(MapTLD.class);
+					//job2.setCombinerClass(ReduceTLD.class);
+					job2.setReducerClass(ReduceTLD.class);
+
+					job2.setInputFormatClass(TextInputFormat.class);
+					job2.setOutputFormatClass(TextOutputFormat.class);
+
+					FileInputFormat.setInputPaths(job2, new Path(args[1]));
+					FileOutputFormat.setOutputPath(job2, new Path(args[6]));
+
+					success = job2.waitForCompletion(true);
+					total_TLD = job2.getCounters().findCounter(ReduceTLD.Counters.TOTAL_TLD).getValue();
+					break;
+				case 3: //Processing DashBoard with the 3nd question
+					System.err.println("PROCESSING QUESTION 3 DASHBOARD DATA FROM " + args[4] + " TO " + args[5]);
+					
+					conf.set("dbCase",args[2]);
+					conf.set("dbCaseInputData",args[3]);		
+					conf.set("startingTime",args[4]);
+					conf.set("endingTime",args[5]);
+
+					Job job3 = new Job(conf);
+					job3.setJarByClass(DashBoard.class);
+					job3.setJobName("CountingContentType");
+					//job3.setNumReduceTasks(1);
+
+					job3.setOutputKeyClass(Text.class);
+					job3.setOutputValueClass(IntWritable.class);
+					 
+					job3.setMapperClass(MapCountingContentType.class);
+					//job3.setCombinerClass(ReduceCountingContentType.class);
+					job3.setReducerClass(ReduceCountingContentType.class);
+
+					job3.setInputFormatClass(TextInputFormat.class);
+					job3.setOutputFormatClass(TextOutputFormat.class);
+
+					FileInputFormat.setInputPaths(job3, new Path(args[0]));
+					FileOutputFormat.setOutputPath(job3, new Path(args[1]));
+
+					success = job3.waitForCompletion(true);
+					total_TLD = job3.getCounters().findCounter(ReduceCountingContentType.Counters.TOTAL_CTT).getValue();
+					break;
+			}
+			
+			return success ? 0 : 1;
+		} else {
+			System.err.println("SYSTEM REUIRES ATLEAST 5 ARGS TO RUN: <input_files> <output_files> <running_case> <starting_time> <ending_time>");
+			return 1;
+		}
+		
+	}
+
+
+
+	
+	public static void main(String[] args) throws Exception {
+		System.err.println("SYSTEM IS RUNNING\n");
+		int ret = ToolRunner.run(new DashBoard(), args);
+		if (ret==0) {
+			System.err.println("SYSTEM RUNS SUCCESSFULLY!");
+
+			switch (Integer.parseInt(args[2])) {
+				case 1: //Processing DashBoard with the 1st question
+					System.err.println("(Distinct URL)/(Total URL) = " + (distinct_counter/2) + "/" + total_counter);
+					break;
+				case 2: //Processing DashBoard with the 2nd question
+					System.err.println("Total Top Level Domain = " + total_TLD);
+					break;
+				case 3: //Processing DashBoard with the 3nd question
+					System.err.println("Total Content Type = " + total_TLD);
+					break;
+			}
+		} else {
+			System.err.println("SYSTEM IS FAIL!");
+		}
+		System.exit(ret);
+    }
+}
